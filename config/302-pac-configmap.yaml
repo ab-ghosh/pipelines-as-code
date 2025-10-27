@@ -102,6 +102,8 @@ data:
   error-detection-max-number-of-lines: "50"
 
   # The default regexp used when we use the simple error detection
+  # You can specify multiple regexes, one per line, to detect different error formats
+  # Each regex must use named groups: 'filename', 'line', and 'error' (column is optional)
   error-detection-simple-regexp: |-
     ^(?P<filename>[^:]*):(?P<line>[0-9]+):(?P<column>[0-9]+)?([ ]*)?(?P<error>.*)
 

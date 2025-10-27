@@ -334,6 +334,31 @@ spec:
                     Settings contains the configuration settings for the repository, including
                     authorization policies, provider-specific configuration, and provenance settings.
                   properties:
+                    error_detection:
+                      description: |-
+                        ErrorDetection contains error detection configuration for this repository.
+                        When specified, these settings override the global error detection settings.
+                      properties:
+                        enabled:
+                          description: |-
+                            Enabled controls whether error detection from container logs is enabled.
+                            When true, PAC will scan container logs for errors matching the configured regexes.
+                          type: boolean
+                        max_number_of_lines:
+                          description: |-
+                            MaxNumberOfLines specifies how many lines from the end of container logs to scan for errors.
+                            Use -1 for unlimited lines. Increasing this value may increase memory usage.
+                          type: integer
+                        simple_regexps:
+                          description: |-
+                            SimpleRegexps is an array of regular expressions used to detect errors in container logs.
+                            Each regex must use named groups: 'filename', 'line', and 'error' (column is optional).
+                            Multiple regexes allow detecting different error formats (e.g., from different linters).
+                            Example: "^(?P<filename>[^:]*):(?P<line>[0-9]+):(?P<column>[0-9]+)?([ ]*)?(?P<error>.*)"
+                          items:
+                            type: string
+                          type: array
+                      type: object
                     github:
                       properties:
                         comment_strategy:

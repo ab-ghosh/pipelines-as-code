@@ -288,6 +288,10 @@ A few settings are available to configure this feature:
    By default the error detection only support a simple output, the way GCC or
    Make will output error, which is supported by most linters and command line tools.
 
+   You can specify **multiple regular expressions** (one per line in the ConfigMap)
+   to support different error formats from various linters. Each regular expression
+   must use named groups: `filename`, `line`, and `error` (the `column` group is optional).
+
    An example of an error that is supported is :
 
    ```console
@@ -296,6 +300,24 @@ A few settings are available to configure this feature:
 
    Pipelines-as-Code will see this line and show it as an annotation on the pull
    request where the error occurred, in the `test.js` file at line 100.
+
+   Example with multiple regexes in ConfigMap:
+
+   ```yaml
+   error-detection-simple-regexp: |-
+     ^(?P<filename>[^:]*):(?P<line>[0-9]+):(?P<column>[0-9]+)?([ ]*)?(?P<error>.*)
+     ^\s*File "(?P<filename>[^"]+)", line (?P<line>\d+).*\n\s*(?P<error>.*)
+   ```
+
+   Error detection can also be configured **per repository** by adding the
+   `error_detection` section to your Repository CR's `settings`. This allows you to:
+
+   - Enable or disable error detection for specific repositories
+   - Configure custom regular expressions for specific projects
+   - Adjust the number of lines scanned per repository
+
+   See the [Repository CR documentation]({{< relref "/docs/guide/repositorycrd" >}})
+   for more details on repository-level configuration.
 
    You can configure the default regexp used for detection. You will need to
    use regexp groups to pass the information of where the error occur, the regexp groups

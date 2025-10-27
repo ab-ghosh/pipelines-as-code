@@ -80,12 +80,24 @@ You can refer to the Pipelines-as-Code
 for an example of how we lint our code and output errors in the
 specified format.
 
-You can customize the regular expression used for detecting errors with the
-`error-detection-simple-regexp` setting. The regular expression uses [named
+You can customize the regular expressions used for detecting errors with the
+`error-detection-simple-regexp` setting. The setting accepts **multiple regular
+expressions** (one per line) to support different error formats from various
+linters. Each regular expression uses [named
 groups](https://www.regular-expressions.info/named.html) to provide flexibility
 in specifying the matching criteria. The necessary groups for matching are
-filename, line, and error (the column group is not used). The default regular
-expression is defined in the configuration map.
+`filename`, `line`, and `error` (the `column` group is optional). The default
+regular expression is defined in the configuration map.
+
+You can also configure error detection **per repository** by adding the
+`error_detection` section to your Repository CR's `settings`. This allows you to:
+
+- Enable or disable error detection for specific repositories
+- Configure custom regular expressions for specific projects
+- Adjust the number of lines scanned per repository
+
+See the [Repository CR documentation]({{< relref "/docs/guide/repositorycrd" >}})
+for more details on repository-level configuration.
 
 By default, Pipelines-as-Code searches for errors in only the last 50 lines of
 the container logs. However, you can increase this limit by setting the

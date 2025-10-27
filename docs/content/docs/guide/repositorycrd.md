@@ -146,6 +146,45 @@ PipelineRun's status (e.g., "started," "succeeded"). Comments may still
 appear if there are errors validating PipelineRuns in the `.tekton`
 directory. (See [Running the PipelineRun docs](../running/#errors-when-parsing-pipelinerun-yaml) for details)
 
+## Error Detection Configuration
+
+You can configure error detection on a per-repository basis by adding the
+`error_detection` section to your Repository CR's `settings`. This allows you to
+override the global error detection settings from the ConfigMap.
+
+Available settings:
+
+- `enabled`: Enable or disable error detection for this repository
+- `max_number_of_lines`: How many lines from the end of container logs to scan for errors (use -1 for unlimited)
+- `simple_regexps`: Array of regular expressions to detect errors. Each regex must use named groups: `filename`, `line`, and `error` (column is optional)
+
+Example:
+
+```yaml
+apiVersion: "pipelinesascode.tekton.dev/v1alpha1"
+kind: Repository
+metadata:
+  name: my-repo
+spec:
+  url: "https://github.com/owner/repo"
+  settings:
+    error_detection:
+      enabled: true
+      max_number_of_lines: 100
+      simple_regexps:
+        - "^(?P<filename>[^:]*):(?P<line>[0-9]+):(?P<column>[0-9]+)?([ ]*)?(?P<error>.*)"
+        - '^\s*File "(?P<filename>[^"]+)", line (?P<line>\d+).*'
+```
+
+This example configures error detection for a specific repository to:
+- Enable error detection
+- Scan the last 100 lines of container logs
+- Use two different regex patterns to detect errors in different formats
+
+When repository-level settings are specified, they override the global settings
+from the ConfigMap. Any settings not specified in the repository will use the
+global defaults.
+
 ### GitLab
 
 By default, Pipelines-as-Code attempts to update the commit status through the

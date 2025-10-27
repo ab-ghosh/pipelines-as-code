@@ -37,6 +37,54 @@ func ValidateAndAssignValues(logger *zap.SugaredLogger, configData map[string]st
 
 		//nolint
 		switch fieldValueKind {
+		case reflect.Slice:
+			// Handle slice of strings (split by newlines)
+			if field.Type.Elem().Kind() == reflect.String {
+				// if fieldvalue is empty, skip validation and set the field as empty slice
+				if validator, ok := customValidations[fieldName]; ok && fieldValue != "" {
+					if err := validator(fieldValue); err != nil {
+						errors = append(errors, fmt.Errorf("custom validation failed for field %s: %w", fieldName, err))
+						continue
+					}
+				}
+
+				// Split by newline to support multi-line values in configmap
+				var sliceValues []string
+				if fieldValue != "" {
+					lines := strings.Split(fieldValue, "\n")
+					for _, line := range lines {
+						line = strings.TrimSpace(line)
+						if line != "" {
+							sliceValues = append(sliceValues, line)
+						}
+					}
+				}
+
+				// If no value from configmap, check if there's a default value
+				if len(sliceValues) == 0 && fieldValue == "" {
+					defaultValue := field.Tag.Get("default")
+					if defaultValue != "" {
+						sliceValues = []string{defaultValue}
+					}
+				}
+
+				slice := reflect.MakeSlice(field.Type, len(sliceValues), len(sliceValues))
+				for i, v := range sliceValues {
+					slice.Index(i).SetString(v)
+				}
+
+				if logUpdates {
+					oldSlice := structValue.FieldByName(fieldName)
+					if !reflect.DeepEqual(oldSlice.Interface(), slice.Interface()) {
+						logger.Infof("updating value for field %s: from '%v' to '%v'", fieldName, oldSlice.Interface(), slice.Interface())
+					}
+				}
+				structValue.FieldByName(fieldName).Set(slice)
+			} else {
+				// Skip unsupported slice types
+				continue
+			}
+
 		case reflect.String:
 			// if fieldvalue is empty, skip validation and set the field as empty string
 			if validator, ok := customValidations[fieldName]; ok && fieldValue != "" {

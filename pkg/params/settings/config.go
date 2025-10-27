@@ -64,11 +64,11 @@ type Settings struct {
 	SecretGHAppRepoScoped            bool   `default:"true"                             json:"secret-github-app-token-scoped"`
 	SecretGhAppTokenScopedExtraRepos string `json:"secret-github-app-scope-extra-repos"`
 
-	ErrorLogSnippet              bool   `default:"true"                                                                          json:"error-log-snippet"`
-	ErrorLogSnippetNumberOfLines int    `default:"3"                                                                             json:"error-log-snippet-number-of-lines"`
-	ErrorDetection               bool   `default:"true"                                                                          json:"error-detection-from-container-logs"`
-	ErrorDetectionNumberOfLines  int    `default:"50"                                                                            json:"error-detection-max-number-of-lines"`
-	ErrorDetectionSimpleRegexp   string `default:"^(?P<filename>[^:]*):(?P<line>[0-9]+):(?P<column>[0-9]+)?([ ]*)?(?P<error>.*)" json:"error-detection-simple-regexp"`
+	ErrorLogSnippet              bool     `default:"true"                                                                          json:"error-log-snippet"`
+	ErrorLogSnippetNumberOfLines int      `default:"3"                                                                             json:"error-log-snippet-number-of-lines"`
+	ErrorDetection               bool     `default:"true"                                                                          json:"error-detection-from-container-logs"`
+	ErrorDetectionNumberOfLines  int      `default:"50"                                                                            json:"error-detection-max-number-of-lines"`
+	ErrorDetectionSimpleRegexp   []string `default:"^(?P<filename>[^:]*):(?P<line>[0-9]+):(?P<column>[0-9]+)?([ ]*)?(?P<error>.*)" json:"error-detection-simple-regexp"`
 
 	EnableCancelInProgressOnPullRequests bool `json:"enable-cancel-in-progress-on-pull-requests"`
 	EnableCancelInProgressOnPush         bool `json:"enable-cancel-in-progress-on-push"`
@@ -105,7 +105,7 @@ func DefaultSettings() Settings {
 
 func DefaultValidators() map[string]func(string) error {
 	return map[string]func(string) error{
-		"ErrorDetectionSimpleRegexp": isValidRegex,
+		"ErrorDetectionSimpleRegexp": isValidRegexArray,
 		"TektonDashboardURL":         isValidURL,
 		"CustomConsoleURL":           isValidURL,
 		"CustomConsolePRTaskLog":     startWithHTTPorHTTPS,
@@ -149,6 +149,22 @@ func isValidURL(rawURL string) error {
 func isValidRegex(regex string) error {
 	if _, err := regexp.Compile(regex); err != nil {
 		return fmt.Errorf("invalid regex: %w", err)
+	}
+	return nil
+}
+
+func isValidRegexArray(regexStr string) error {
+	// The regexStr could be a single regex or multiple regexes separated by newlines
+	// Split by newline to handle multi-line regexes from configmap
+	regexes := strings.Split(regexStr, "\n")
+	for _, regex := range regexes {
+		regex = strings.TrimSpace(regex)
+		if regex == "" {
+			continue
+		}
+		if err := isValidRegex(regex); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -160,6 +160,11 @@ type Settings struct {
 	Gitlab *GitlabSettings `json:"gitlab,omitempty"`
 
 	Github *GithubSettings `json:"github,omitempty"`
+
+	// ErrorDetection contains error detection configuration for this repository.
+	// When specified, these settings override the global error detection settings.
+	// +optional
+	ErrorDetection *ErrorDetectionSettings `json:"error_detection,omitempty"`
 }
 
 type GitlabSettings struct {
@@ -180,6 +185,25 @@ type GithubSettings struct {
 	CommentStrategy string `json:"comment_strategy,omitempty"`
 }
 
+type ErrorDetectionSettings struct {
+	// Enabled controls whether error detection from container logs is enabled.
+	// When true, PAC will scan container logs for errors matching the configured regexes.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// MaxNumberOfLines specifies how many lines from the end of container logs to scan for errors.
+	// Use -1 for unlimited lines. Increasing this value may increase memory usage.
+	// +optional
+	MaxNumberOfLines *int `json:"max_number_of_lines,omitempty"`
+
+	// SimpleRegexps is an array of regular expressions used to detect errors in container logs.
+	// Each regex must use named groups: 'filename', 'line', and 'error' (column is optional).
+	// Multiple regexes allow detecting different error formats (e.g., from different linters).
+	// Example: "^(?P<filename>[^:]*):(?P<line>[0-9]+):(?P<column>[0-9]+)?([ ]*)?(?P<error>.*)"
+	// +optional
+	SimpleRegexps []string `json:"simple_regexps,omitempty"`
+}
+
 func (s *Settings) Merge(newSettings *Settings) {
 	if newSettings.PipelineRunProvenance != "" && s.PipelineRunProvenance == "" {
 		s.PipelineRunProvenance = newSettings.PipelineRunProvenance
@@ -189,6 +213,9 @@ func (s *Settings) Merge(newSettings *Settings) {
 	}
 	if newSettings.GithubAppTokenScopeRepos != nil && s.GithubAppTokenScopeRepos == nil {
 		s.GithubAppTokenScopeRepos = newSettings.GithubAppTokenScopeRepos
+	}
+	if newSettings.ErrorDetection != nil && s.ErrorDetection == nil {
+		s.ErrorDetection = newSettings.ErrorDetection
 	}
 }
 
