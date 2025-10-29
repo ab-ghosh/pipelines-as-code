@@ -58,6 +58,7 @@ const (
 	TargetNamespace        = pipelinesascode.GroupName + "/target-namespace"
 	MaxKeepRuns            = pipelinesascode.GroupName + "/max-keep-runs"
 	CancelInProgress       = pipelinesascode.GroupName + "/cancel-in-progress"
+	CancellationReason     = pipelinesascode.GroupName + "/cancellation-reason"
 	LogURL                 = pipelinesascode.GroupName + "/log-url"
 	ExecutionOrder         = pipelinesascode.GroupName + "/execution-order"
 	SCMReportingPLRStarted = pipelinesascode.GroupName + "/scm-reporting-plr-started"

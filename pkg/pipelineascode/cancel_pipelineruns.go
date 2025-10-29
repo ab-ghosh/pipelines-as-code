@@ -78,7 +78,12 @@ func (p *PacRun) cancelAllInProgressBelongingToClosedPullRequest(ctx context.Con
 		return nil
 	}
 
-	p.cancelPipelineRuns(ctx, prs, repo, func(_ tektonv1.PipelineRun) bool {
+	// Provide clear reason: was it because cancel-in-progress is enabled or just because PR was closed?
+	reason := "Cancelled because the Pull Request or Merge Request was closed or declined"
+	if cancelInProgress == "true" {
+		reason = "Cancelled because the Pull Request or Merge Request was closed and cancel-in-progress is enabled globally via Pipelines-as-Code ConfigMap"
+	}
+	p.cancelPipelineRuns(ctx, prs, repo, reason, func(_ tektonv1.PipelineRun) bool {
 		return true
 	})
 
@@ -148,7 +153,9 @@ func (p *PacRun) cancelInProgressMatchingPipelineRun(ctx context.Context, matchP
 		return fmt.Errorf("failed to list pipelineRuns : %w", err)
 	}
 
-	p.cancelPipelineRuns(ctx, prs, repo, func(pr tektonv1.PipelineRun) bool {
+	// Build a detailed reason that explains which PipelineRun triggered the cancellation and how
+	reason := fmt.Sprintf("Cancelled by newer PipelineRun '%s' because cancel-in-progress is enabled %s", matchPR.GetName(), cancellingVia)
+	p.cancelPipelineRuns(ctx, prs, repo, reason, func(pr tektonv1.PipelineRun) bool {
 		// skip our own for cancellation
 		if sourceBranch, ok := pr.GetAnnotations()[keys.SourceBranch]; ok {
 			// NOTE(chmouel): Every PR has their own branch and so is every push to different branch
@@ -194,7 +201,12 @@ func (p *PacRun) cancelPipelineRunsOpsComment(ctx context.Context, repo *v1alpha
 		return nil
 	}
 
-	p.cancelPipelineRuns(ctx, prs, repo, func(pr tektonv1.PipelineRun) bool {
+	// Build reason showing who cancelled and what command they used
+	reason := fmt.Sprintf("Cancelled by user %s via /cancel command", p.event.Sender)
+	if p.event.TargetCancelPipelineRun != "" {
+		reason = fmt.Sprintf("Cancelled by user %s via '/cancel %s' command", p.event.Sender, p.event.TargetCancelPipelineRun)
+	}
+	p.cancelPipelineRuns(ctx, prs, repo, reason, func(pr tektonv1.PipelineRun) bool {
 		if p.event.TargetCancelPipelineRun != "" {
 			if prName, ok := pr.GetAnnotations()[keys.OriginalPRName]; !ok || prName != p.event.TargetCancelPipelineRun {
 				return false
@@ -206,7 +218,7 @@ func (p *PacRun) cancelPipelineRunsOpsComment(ctx context.Context, repo *v1alpha
 	return nil
 }
 
-func (p *PacRun) cancelPipelineRuns(ctx context.Context, prs *tektonv1.PipelineRunList, repo *v1alpha1.Repository, condition matchingCond) {
+func (p *PacRun) cancelPipelineRuns(ctx context.Context, prs *tektonv1.PipelineRunList, repo *v1alpha1.Repository, cancellationReason string, condition matchingCond) {
 	var wg sync.WaitGroup
 	for _, pr := range prs.Items {
 		if !condition(pr) {
@@ -223,15 +235,33 @@ func (p *PacRun) cancelPipelineRuns(ctx context.Context, prs *tektonv1.PipelineR
 			continue
 		}
 
-		p.logger.Infof("cancel-in-progress: cancelling pipelinerun %v/%v", pr.GetNamespace(), pr.GetName())
+		// Log with reason so it's clear WHY the PipelineRun is being cancelled
+		p.logger.Infof("cancel-in-progress: cancelling pipelinerun %v/%v. Reason: %s", pr.GetNamespace(), pr.GetName(), cancellationReason)
 		wg.Add(1)
-		go func(ctx context.Context, pr tektonv1.PipelineRun) {
+		go func(ctx context.Context, pr tektonv1.PipelineRun, reason string) {
 			defer wg.Done()
+			// First, add the cancellation reason annotation so it's persisted
+			annotationPatch := map[string]any{
+				"metadata": map[string]any{
+					"annotations": map[string]string{
+						keys.CancellationReason: reason,
+					},
+				},
+			}
+			if _, err := action.PatchPipelineRun(ctx, p.logger, "add cancellation reason annotation", p.run.Clients.Tekton, &pr, annotationPatch); err != nil {
+				p.logger.Warnf("failed to add cancellation reason annotation to pipelineRun %s/%s: %s", pr.GetNamespace(), pr.GetName(), err.Error())
+			}
+
+			// Then cancel the pipelinerun
 			if _, err := action.PatchPipelineRun(ctx, p.logger, "cancel patch", p.run.Clients.Tekton, &pr, cancelMergePatch); err != nil {
 				errMsg := fmt.Sprintf("failed to cancel pipelineRun %s/%s: %s", pr.GetNamespace(), pr.GetName(), err.Error())
 				p.eventEmitter.EmitMessage(repo, zap.ErrorLevel, "CancelInProgress", errMsg)
+			} else {
+				// Emit a success message with the reason so users can see it in Kubernetes events
+				successMsg := fmt.Sprintf("Successfully cancelled pipelineRun %s/%s. Reason: %s", pr.GetNamespace(), pr.GetName(), reason)
+				p.eventEmitter.EmitMessage(repo, zap.InfoLevel, "CancelInProgress", successMsg)
 			}
-		}(ctx, pr)
+		}(ctx, pr, cancellationReason)
 	}
 	wg.Wait()
 }

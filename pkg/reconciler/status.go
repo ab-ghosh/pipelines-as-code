@@ -121,6 +121,15 @@ func (r *Reconciler) postFinalStatus(ctx context.Context, logger *zap.SugaredLog
 		taskStatusText = pr.Status.GetCondition(apis.ConditionSucceeded).Message
 	}
 
+	// If the PipelineRun was cancelled and has a cancellation reason annotation,
+	// prepend it to the status text so users see it in GitHub/GitLab comments
+	if pr.IsCancelled() {
+		if cancellationReason, ok := pr.GetAnnotations()[apipac.CancellationReason]; ok && cancellationReason != "" {
+			// Use markdown formatting for better visibility in Git provider UIs
+			taskStatusText = fmt.Sprintf("**Cancellation Reason:** %s\n\n%s", cancellationReason, taskStatusText)
+		}
+	}
+
 	namespaceURL := r.run.Clients.ConsoleUI().NamespaceURL(pr)
 	consoleURL := r.run.Clients.ConsoleUI().DetailURL(pr)
 	mt := formatting.MessageTemplate{

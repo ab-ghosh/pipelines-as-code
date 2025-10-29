@@ -1518,6 +1518,106 @@ func TestCancelAllInProgressBelongingToClosedPullRequest(t *testing.T) {
 	}
 }
 
+func TestCancellationReasonAnnotation(t *testing.T) {
+	observer, _ := zapobserver.New(zap.InfoLevel)
+	logger := zap.New(observer).Sugar()
+
+	tests := []struct {
+		name                string
+		event               *info.Event
+		repo                *v1alpha1.Repository
+		pipelineRuns        []*pipelinev1.PipelineRun
+		wantCancellationMsg string
+	}{
+		{
+			name: "cancel by user command includes sender",
+			event: &info.Event{
+				Repository:        "foo",
+				SHA:               "foosha",
+				TriggerTarget:     "pull_request",
+				PullRequestNumber: pullReqNumber,
+				Sender:            "johndoe",
+				State: info.State{
+					CancelPipelineRuns: true,
+				},
+			},
+			pipelineRuns: []*pipelinev1.PipelineRun{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pr-foo",
+						Namespace: "foo",
+						Labels:    fooRepoLabels,
+					},
+					Spec: pipelinev1.PipelineRunSpec{},
+				},
+			},
+			repo:                fooRepo,
+			wantCancellationMsg: "Cancelled by user johndoe via /cancel command",
+		},
+		{
+			name: "cancel specific pipeline includes pipeline name",
+			event: &info.Event{
+				Repository:        "foo",
+				SHA:               "foosha",
+				TriggerTarget:     "pull_request",
+				PullRequestNumber: pullReqNumber,
+				Sender:            "janedoe",
+				State: info.State{
+					CancelPipelineRuns:      true,
+					TargetCancelPipelineRun: "pr-foo",
+				},
+			},
+			pipelineRuns: []*pipelinev1.PipelineRun{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "pr-foo-123",
+						Namespace:   "foo",
+						Labels:      fooRepoLabels,
+						Annotations: fooRepoAnnotations,
+					},
+					Spec: pipelinev1.PipelineRunSpec{},
+				},
+			},
+			repo:                fooRepo,
+			wantCancellationMsg: "Cancelled by user janedoe via '/cancel pr-foo' command",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := rtesting.SetupFakeContext(t)
+
+			tdata := testclient.Data{
+				PipelineRuns: tt.pipelineRuns,
+			}
+			stdata, _ := testclient.SeedTestData(t, ctx, tdata)
+			cs := &params.Run{
+				Clients: clients.Clients{
+					Log:    logger,
+					Tekton: stdata.Pipeline,
+					Kube:   stdata.Kube,
+				},
+			}
+			pac := NewPacs(tt.event, nil, cs, &info.PacOpts{}, nil, logger, nil)
+			err := pac.cancelPipelineRunsOpsComment(ctx, tt.repo)
+			assert.NilError(t, err)
+
+			got, err := cs.Clients.Tekton.TektonV1().PipelineRuns("foo").List(ctx, metav1.ListOptions{})
+			assert.NilError(t, err)
+
+			// Verify that cancelled PipelineRuns have the cancellation reason annotation
+			for _, pr := range got.Items {
+				if pr.Spec.Status == pipelinev1.PipelineRunSpecStatusCancelledRunFinally {
+					// Check that cancellation reason annotation exists
+					reason, ok := pr.GetAnnotations()[keys.CancellationReason]
+					assert.Assert(t, ok, "cancelled PipelineRun should have cancellation-reason annotation")
+					assert.Equal(t, reason, tt.wantCancellationMsg, "cancellation reason should match expected message")
+				}
+			}
+		})
+	}
+}
+
 func TestGetLabelSelector(t *testing.T) {
 	tests := []struct {
 		name      string
