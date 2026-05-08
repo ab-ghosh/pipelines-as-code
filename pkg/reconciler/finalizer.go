@@ -69,6 +69,47 @@ func (r *Reconciler) FinalizeKind(ctx context.Context, pr *tektonv1.PipelineRun)
 			return nil
 		}
 	}
+
+	if state == kubeinteraction.StateFailed {
+		repoName, ok := pr.GetAnnotations()[keys.Repository]
+		if !ok {
+			return nil
+		}
+		repo, err := r.repoLister.Repositories(pr.Namespace).Get(repoName)
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if err := r.retryFinalStatusUpdate(ctx, repo, pr); err != nil {
+			logger.Errorf("failed to retry final status update on finalize: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func (r *Reconciler) retryFinalStatusUpdate(ctx context.Context, repo *v1alpha1.Repository, pr *tektonv1.PipelineRun) error {
+	logger := logging.FromContext(ctx)
+	pacInfo := r.run.Info.GetPacOpts()
+
+	detectedProvider, event, err := r.initGitProviderClient(ctx, logger, repo, pr)
+	if err != nil {
+		return err
+	}
+
+	if r.run.Clients.Log == nil {
+		r.run.Clients.Log = logger
+	}
+
+	_, _, err = r.postFinalStatus(ctx, logger, &pacInfo, detectedProvider, event, pr)
+	if err != nil {
+		return fmt.Errorf("failed to post final status on finalize: %w", err)
+	}
+
+	logger.Infof("successfully retried final status update for pipelineRun %s/%s", pr.GetNamespace(), pr.GetName())
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/apis/pipelinesascode/keys"
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/apis/pipelinesascode/v1alpha1"
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/consoleui"
+	"github.com/openshift-pipelines/pipelines-as-code/pkg/events"
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/kubeinteraction"
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/params"
 	"github.com/openshift-pipelines/pipelines-as-code/pkg/params/clients"
@@ -20,7 +21,9 @@ import (
 	"go.uber.org/zap"
 	zapobserver "go.uber.org/zap/zaptest/observer"
 	"gotest.tools/v3/assert"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"knative.dev/pkg/apis"
 	"knative.dev/pkg/logging"
 	rtesting "knative.dev/pkg/reconciler/testing"
 )
@@ -126,6 +129,18 @@ func TestReconcilerFinalizeKind(t *testing.T) {
 				getTestPR("pr3", kubeinteraction.StateQueued),
 			},
 		},
+		{
+			name: "failed state retries final status",
+			pipelinerun: func() *tektonv1.PipelineRun {
+				pr := getTestPR("pr1", kubeinteraction.StateFailed)
+				pr.Status.Conditions = append(pr.Status.Conditions, apis.Condition{
+					Type:   apis.ConditionSucceeded,
+					Status: corev1.ConditionFalse,
+					Reason: tektonv1.PipelineRunReasonFailed.String(),
+				})
+				return pr
+			}(),
+		},
 	}
 
 	for _, tt := range tests {
@@ -134,6 +149,7 @@ func TestReconcilerFinalizeKind(t *testing.T) {
 			ctx = logging.WithLogger(ctx, fakelogger)
 			testData := testclient.Data{
 				Repositories: []*v1alpha1.Repository{finalizeTestRepo},
+				PipelineRuns: []*tektonv1.PipelineRun{tt.pipelinerun},
 			}
 			if tt.skipAddingRepo {
 				testData.Repositories = []*v1alpha1.Repository{}
@@ -148,6 +164,7 @@ func TestReconcilerFinalizeKind(t *testing.T) {
 			cs := &params.Run{
 				Clients: clients.Clients{
 					PipelineAsCode: stdata.PipelineAsCode,
+					Tekton:         stdata.Pipeline,
 					Log:            fakelogger,
 				},
 				Info: info.Info{
@@ -158,10 +175,11 @@ func TestReconcilerFinalizeKind(t *testing.T) {
 			}
 			cs.Clients.SetConsoleUI(consoleui.FallBackConsole{})
 			r := Reconciler{
-				repoLister: informers.Repository.Lister(),
-				qm:         queuepkg.NewManager(fakelogger),
-				run:        cs,
-				kinteract:  kinterfaceTest,
+				repoLister:   informers.Repository.Lister(),
+				qm:           queuepkg.NewManager(fakelogger),
+				run:          cs,
+				kinteract:    kinterfaceTest,
+				eventEmitter: events.NewEventEmitter(stdata.Kube, fakelogger),
 			}
 
 			if len(tt.addToQueue) != 0 {
